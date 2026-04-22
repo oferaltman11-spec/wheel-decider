@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Rigged Wheel Decider</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;900&family=DM+Mono:wght@400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.0/Sortable.min.js"></script>
+<style>
+  :root {
+    --felt: #1a3a2a; --felt-dark: #0f2218; --gold: #c9a84c; --gold-dark: #9a7a30;
+    --gold-light: #e8c96a; --text-on-dark: #f0ead8; --red: #c0392b; --ghost-bg: #f9f7f2;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--felt-dark); color: var(--text-on-dark); min-height: 100vh; transition: 0.5s; overflow-x: hidden; }
+  body.ghost-mode { background: var(--ghost-bg); color: #2c2416; }
+
+  .noise { position: fixed; inset: 0; pointer-events: none; z-index: 0; background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E"); opacity: 0.4; }
+
+  .wrapper { position: relative; z-index: 1; max-width: 1100px; margin: 0 auto; padding: 0 1.5rem 4rem; }
+
+  #notifyBanner { position: fixed; top: -100px; left: 50%; transform: translateX(-50%); width: 90%; max-width: 500px; background: var(--felt-dark); border: 1px solid var(--gold); border-radius: 8px; padding: 15px 20px; z-index: 1000; display: flex; justify-content: space-between; align-items: center; transition: top 0.5s; box-shadow: 0 10px 30px rgba(0,0,0,0.5); color: var(--gold-light); }
+  body.ghost-mode #notifyBanner { background: white; color: #2c2416; border-color: #ccc; }
+  #notifyBanner.show { top: 20px; }
+
+  .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.85); z-index: 2000; align-items: center; justify-content: center; padding: 20px; }
+  .modal-content { background: var(--felt-dark); border: 1px solid var(--gold); padding: 2rem; border-radius: 12px; width: 100%; max-width: 450px; }
+  body.ghost-mode .modal-content { background: white; color: #2c2416; border-color: #ccc; }
+
+  header { display: flex; align-items: center; justify-content: space-between; padding: 1.5rem 0 1rem; border-bottom: 1px solid rgba(201,168,76,0.25); margin-bottom: 2rem; }
+  .logo { font-family: 'Playfair Display', serif; font-size: 1.8rem; font-weight: 900; color: var(--gold); }
+  body.ghost-mode .logo { color: #2c2416; }
+  
+  .rigged-badge { background: var(--red); color: #fff; font-family: 'DM Mono', monospace; font-size: 0.65rem; padding: 4px 10px; border-radius: 4px; margin-left: 12px; text-transform: uppercase; letter-spacing: 1px; display: inline-block; vertical-align: middle; }
+  body.ghost-mode .rigged-badge { display: none; }
+
+  .pulse-dot { width: 8px; height: 8px; background-color: var(--red); border-radius: 50%; display: inline-block; margin-right: 8px; animation: pulse 1.5s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.3; transform: scale(0.8); } }
+
+  .main-grid { display: grid; grid-template-columns: 1fr 380px; gap: 2rem; align-items: start; }
+  @media (max-width: 900px) { .main-grid { grid-template-columns: 1fr; } }
+
+  .wheel-container { position: relative; width: 340px; height: 340px; margin-bottom: 20px; }
+  .top-arrow { position: absolute; top: -12px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 15px solid transparent; border-right: 15px solid transparent; border-top: 25px solid var(--gold); z-index: 20; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.4)); }
+  body.ghost-mode .top-arrow { border-top-color: #444; }
+
+  canvas { border-radius: 50%; box-shadow: 0 0 40px rgba(0,0,0,0.6), 0 0 0 8px var(--felt-dark), 0 0 0 12px var(--gold-dark); cursor: pointer; transition: transform 0.1s ease-out; }
+  canvas:active { transform: scale(0.98); }
+  body.ghost-mode canvas { box-shadow: 0 4px 24px rgba(0,0,0,0.12), 0 0 0 8px var(--ghost-bg), 0 0 0 12px #ccc; }
+
+  .btn-spin { background: linear-gradient(135deg, var(--gold) 0%, var(--gold-dark) 100%); color: var(--felt-dark); border: none; font-size: 1rem; font-weight: 600; padding: 12px 36px; border-radius: 8px; cursor: pointer; transition: 0.2s; }
+  body.ghost-mode .btn-spin { background: #333; color: white; }
+  
+  .panel { background: rgba(255,255,255,0.04); border: 1px solid rgba(201,168,76,0.2); border-radius: 12px; overflow: hidden; }
+  body.ghost-mode .panel { background: #fff; border-color: #ddd; box-shadow: 0 2px 16px rgba(0,0,0,0.07); }
+  
+  .history-chip, .entry-bubble { font-size: 0.85rem; background: rgba(255,255,255,0.08); border: 1px solid rgba(201,168,76,0.3); border-radius: 10px; padding: 8px 14px; color: var(--gold-light); display: inline-flex; align-items: center; transition: 0.3s; }
+  body.ghost-mode .history-chip, body.ghost-mode .entry-bubble { background: #f0ede8; border-color: #ccc; color: #444; }
+
+  .entry-bubble { width: 100%; margin-bottom: 8px; gap: 10px; background: rgba(255,255,255,0.04); }
+  .entry-bubble.exhausted { opacity: 0.4; text-decoration: line-through; }
+  .entry-bubble input { flex: 1; background: transparent; border: none; color: inherit; outline: none; font-size: 0.9rem; }
+
+  .instruction-text { font-size: 0.7rem; color: #a09070; line-height: 1.4; margin-top: 4px; opacity: 0.8; }
+  body.ghost-mode .instruction-text { color: #666; }
+
+  body.ghost-mode .tab-rigged, body.ghost-mode #ghostRigIndicator, body.ghost-mode #ghostToggleWrapper { display: none !important; }
+  .locked-state { opacity: 0.5; pointer-events: none; }
+</style>
+</head>
+<body>
+<div class="noise"></div>
+
+<div id="bulkModal" class="modal">
+  <div class="modal-content">
+    <h3 style="margin-bottom:12px; font-family:'Playfair Display';">Add Entries via List</h3>
+    <p style="font-size:0.75rem; margin-bottom:15px; opacity:0.8;">Paste names below, one per line.</p>
+    <textarea id="bulkTextarea" style="width:100%; height:200px; background:rgba(0,0,0,0.2); border:1px solid var(--gold-dark); border-radius:8px; color:white; padding:12px; font-family:sans-serif; outline:none; resize:none;"></textarea>
+    <div style="margin-top:20px; display:flex; gap:12px;">
+      <button class="btn-spin" onclick="importBulkList()" style="flex:1; padding:10px;">Import</button>
+      <button onclick="closeBulkModal()" style="background:none; border:none; color:var(--gold); cursor:pointer; font-size:0.85rem;">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="notifyBanner">
+  <span id="notifyMsg">Action Successful</span>
+  <span onclick="hideNotify()" style="cursor:pointer; font-weight:bold; font-size:1.2rem;">×</span>
+</div>
+
+<div class="wrapper">
+  <header>
+    <div class="logo"><span id="titleMain">Rigged Wheel Decider</span> <span class="rigged-badge">RIGGED</span></div>
+    <div id="ghostToggleWrapper" style="display:flex; align-items:center; gap:10px;">
+      <span style="font-family:'DM Mono'; font-size:0.65rem; color:var(--gold-dark); opacity:0.7;">Shift + S</span>
+      <button onclick="toggleGhost()" style="background:none; border:1px solid var(--gold); color:var(--gold); padding:8px 16px; border-radius:20px; cursor:pointer;">👻 Ghost Mode</button>
+    </div>
+  </header>
+
+  <div class="main-grid">
+    <div style="display:flex; flex-direction:column; align-items:center; gap:1.5rem;">
+      <div class="wheel-container">
+        <div class="top-arrow"></div>
+        <canvas id="wheelCanvas" width="340" height="340" onclick="spin()"></canvas>
+      </div>
+      <div id="resultDisplay" style="font-family:'Playfair Display'; font-size:1.5rem; color:var(--gold-light); min-height:1.5em;">Click Spin to begin</div>
+      <div style="display:flex; gap:12px;">
+        <button class="btn-spin" onclick="spin()">Spin the Wheel</button>
+        <button onclick="resetAll()" style="background:none; border:1px solid var(--gold-dark); color:var(--gold); padding:10px 20px; border-radius:8px; cursor:pointer;">Reset</button>
+      </div>
+      <div class="panel" style="width:100%; max-width:340px; padding:1rem;">
+        <div style="font-family:'DM Mono'; font-size:0.65rem; color:#a09070; text-transform:uppercase;">Spin History</div>
+        <div id="historyChips" style="margin-top:10px;"></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div style="display:flex; gap:4px; padding:10px; background:rgba(0,0,0,0.2);">
+        <button class="tab active" id="tabBtnEntries" onclick="switchTab('entries')" style="flex:1; padding:8px; border:none; background:transparent; color:var(--gold); font-family:'DM Mono'; cursor:pointer;">ENTRIES</button>
+        <button class="tab tab-rigged" id="tabBtnOrder" onclick="switchTab('order')" style="flex:1; padding:8px; border:none; background:transparent; color:#a09070; font-family:'DM Mono'; cursor:pointer;">RIGGING</button>
+      </div>
+
+      <div id="tab-entries" style="padding: 1.25rem;">
+        <div id="entryList"></div>
+        <button onclick="addEntry()" style="width:100%; background:none; border:1px dashed var(--gold-dark); color:var(--gold); padding:10px; border-radius:8px; cursor:pointer; margin-top:10px;">+ Add Entry</button>
+        <button onclick="openBulkModal()" style="width:100%; background:none; border:1px solid rgba(201,168,76,0.3); color:var(--gold-light); padding:8px; border-radius:8px; cursor:pointer; margin-top:8px; font-size:0.75rem;">Add Entries via List</button>
+        <button onclick="removeAllEntries()" style="width:100%; background:none; border:1px solid rgba(192,57,43,0.4); color:#e8796b; padding:8px; border-radius:8px; cursor:pointer; margin-top:8px; font-size:0.75rem;">Remove All Entries</button>
+        
+        <div style="margin-top:15px; display:flex; align-items:center; gap:10px;">
+          <input type="checkbox" id="removeOnSelect" style="cursor:pointer;">
+          <label for="removeOnSelect" style="font-size:0.8rem; cursor:pointer;">Remove option after selection</label>
+        </div>
+        <div id="ghostRigIndicator" style="margin-top:20px; padding:12px; background:rgba(192,57,43,0.1); border-radius:8px; color:var(--red); font-size:0.75rem; font-weight:600; display:none;">
+          <span class="pulse-dot"></span>RIGGING ACTIVE
+        </div>
+      </div>
+
+      <div id="tab-order" style="padding:1.25rem; display:none;">
+        <div id="tabRigIndicator" style="margin-bottom:20px; padding:10px; background:rgba(192,57,43,0.1); border-radius:8px; color:var(--red); font-size:0.75rem; font-weight:600; display:none;">
+          <span class="pulse-dot"></span>RIGGING ACTIVE
+        </div>
+        
+        <div id="secOverride">
+          <label style="font-size:0.65rem; font-family:'DM Mono'; color:var(--gold);">MANUAL OVERRIDES</label>
+          <div class="instruction-text">Forces the 1st or Final spin to land on a choice. Locking this disables sequence.</div>
+          <div id="overrideControls">
+            <select id="firstPick" onchange="syncDropdowns()" style="width:100%; background:#000; color:#fff; padding:8px; margin-top:10px; border:1px solid #333; border-radius:4px;"></select>
+            <select id="lastPick" onchange="syncDropdowns()" style="width:100%; background:#000; color:#fff; padding:8px; margin-top:5px; border:1px solid #333; border-radius:4px;"></select>
+          </div>
+          <button id="btnLockOverride" onclick="lockOverride()" style="width:100%; background:var(--gold-dark); color:white; border:none; padding:10px; border-radius:4px; cursor:pointer; margin-top:10px;">Lock Override</button>
+        </div>
+
+        <div style="margin:20px 0; height:1px; background:rgba(201,168,76,0.1);"></div>
+
+        <div id="secSequence">
+          <label style="font-size:0.65rem; font-family:'DM Mono'; color:var(--gold);">FULL WIN SEQUENCE</label>
+          <div class="instruction-text">Drag to set win order. Locking this disables manual overrides.</div>
+          <div id="dragOrderList" style="margin-top:15px;"></div>
+          <button id="btnLockSeq" onclick="lockSequence()" style="width:100%; background:var(--gold-dark); color:white; border:none; padding:10px; border-radius:4px; cursor:pointer; margin-top:10px;">Lock Sequence</button>
+        </div>
+        <button onclick="clearAllRigging()" style="width:100%; background:none; border:1px solid #444; color:#888; padding:8px; border-radius:4px; cursor:pointer; margin-top:20px; font-size:0.7rem;">Clear All Rigging</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// --- SUBSCRIPTION SETTINGS ---
+// Change this key once a month (e.g., 'GHOST_JUNE_26') to rotate access links
+const CURRENT_VALID_KEY = 'GHOST_ACCESS_2026'; 
+
+const COLORS = ['#c0392b','#2980b9','#c9a84c','#27ae60','#8e44ad','#f39c12','#16a085','#2c3e50'];
+let entries = [{name:'Option 1',weight:1,color:COLORS[0],exhausted:false},{name:'Option 2',weight:1,color:COLORS[1],exhausted:false},{name:'Option 3',weight:1,color:COLORS[2],exhausted:false},{name:'Option 4',weight:1,color:COLORS[3],exhausted:false}];
+let spinHistory = [], isSpinning = false, currentRotation = 0, lockedSeq = null, activeOverride = null;
+
+let hasPaid = localStorage.getItem('subscriptionKey') === CURRENT_VALID_KEY;
+
+const canvas = document.getElementById('wheelCanvas'), ctx = canvas.getContext('2d');
+
+function showNotify(msg) {
+  const b = document.getElementById('notifyBanner');
+  document.getElementById('notifyMsg').innerText = msg;
+  b.classList.add('show');
+  setTimeout(hideNotify, 5000);
+}
+function hideNotify() { document.getElementById('notifyBanner').classList.remove('show'); }
+
+function openBulkModal() { document.getElementById('bulkModal').style.display = 'flex'; }
+function closeBulkModal() { document.getElementById('bulkModal').style.display = 'none'; document.getElementById('bulkTextarea').value = ''; }
+function importBulkList() {
+  const val = document.getElementById('bulkTextarea').value;
+  const names = val.split('\n').map(n => n.trim()).filter(n => n !== "");
+  names.forEach(n => entries.push({name: n, weight: 1, color: COLORS[entries.length % COLORS.length], exhausted: false}));
+  updateUI(); closeBulkModal(); showNotify(`Imported ${names.length} entries.`);
+}
+function removeAllEntries() { entries = []; updateUI(); showNotify("All entries removed."); }
+
+function draw() {
+  const active = entries.filter(e => !e.exhausted);
+  if(!active.length) { ctx.clearRect(0,0,340,340); return; }
+  const total = active.reduce((s,e)=>s+e.weight,0);
+  let start = currentRotation;
+  ctx.clearRect(0,0,340,340);
+  active.forEach(e => {
+    const slice = (e.weight/total)*2*Math.PI;
+    ctx.beginPath(); ctx.moveTo(170,170); ctx.arc(170,170,160,start,start+slice);
+    ctx.fillStyle = e.color; ctx.fill();
+    ctx.strokeStyle = 'rgba(0,0,0,0.15)'; ctx.stroke();
+    ctx.save(); ctx.translate(170,170); ctx.rotate(start + slice/2);
+    ctx.fillStyle="white"; ctx.font="bold 12px DM Sans"; ctx.fillText(e.name.substring(0,10),70,5);
+    ctx.restore(); start += slice;
+  });
+}
+
+function spin() {
+  const active = entries.filter(e => !e.exhausted);
+  if(isSpinning || !active.length) return;
+  isSpinning = true;
+  let winner;
+  
+  if(lockedSeq) {
+    winner = lockedSeq[spinHistory.length % lockedSeq.length];
+  } else if(spinHistory.length === 0 && activeOverride?.first) {
+    winner = activeOverride.first;
+  } else if(active.length === 1 && activeOverride?.last) {
+    winner = activeOverride.last;
+  } else {
+    const total = active.reduce((s,e)=>s+e.weight,0); 
+    let pool = active;
+    if (activeOverride?.last && active.length > 1) {
+       pool = active.filter(e => e.name !== activeOverride.last);
+    }
+    const poolTotal = pool.reduce((s,e)=>s+e.weight,0);
+    let r = Math.random()*poolTotal;
+    for(let e of pool) { if(r<e.weight){winner=e.name; break;} r-=e.weight; }
+  }
+
+  const idx = active.findIndex(e=>e.name===winner), totalW = active.reduce((s,e)=>s+e.weight,0);
+  let angle = 0; for(let i=0; i<idx; i++) angle += (active[i].weight/totalW)*2*Math.PI;
+  const target = (1.5*Math.PI)-(angle + (0.1 + Math.random()*0.8)*((active[idx].weight/totalW)*2*Math.PI));
+  const final = (Math.PI*2)*15 + target, startT = performance.now();
+  const startRotation = currentRotation % (Math.PI * 2);
+
+  function animate(now) {
+    let t = Math.min((now-startT)/6000, 1), ease = 1 - Math.pow(1 - t, 4);
+    currentRotation = startRotation + ease * (final - startRotation);
+    draw();
+    if(t<1) requestAnimationFrame(animate);
+    else {
+      isSpinning = false; document.getElementById('resultDisplay').innerText = winner + " 🎉";
+      spinHistory.push(winner);
+      if(document.getElementById('removeOnSelect').checked) { 
+        let e = entries.find(x=>x.name===winner); 
+        if(e) e.exhausted=true; 
+      }
+      updateUI();
+    }
+  }
+  requestAnimationFrame(animate);
+}
+
+function syncDropdowns() {
+  const first = document.getElementById('firstPick'), last = document.getElementById('lastPick');
+  const vF = first.value, vL = last.value;
+  first.innerHTML = '<option value="">- First Winner -</option>';
+  last.innerHTML = '<option value="">- Final Winner -</option>';
+  entries.forEach(e => {
+    if(e.name !== vL) first.innerHTML += `<option value="${e.name}" ${vF===e.name?'selected':''}>${e.name}</option>`;
+    if(e.name !== vF) last.innerHTML += `<option value="${e.name}" ${vL===e.name?'selected':''}>${e.name}</option>`;
+  });
+}
+
+function lockOverride() {
+  if (document.getElementById('btnLockOverride').innerText === "Unlock") { 
+    activeOverride = null; 
+    document.getElementById('overrideControls').classList.remove('locked-state');
+    updateUI(); 
+    return; 
+  }
+  activeOverride = { first: document.getElementById('firstPick').value, last: document.getElementById('lastPick').value };
+  lockedSeq = null; 
+  document.getElementById('overrideControls').classList.add('locked-state');
+  updateUI(); 
+  showNotify("Manual Overrides Locked");
+}
+
+function lockSequence() {
+  if (document.getElementById('btnLockSeq').innerText === "Unlock") { lockedSeq = null; updateUI(); return; }
+  lockedSeq = Array.from(document.querySelectorAll('.order-item')).map(i => i.dataset.name);
+  activeOverride = null; updateUI(); showNotify("Full Sequence Locked");
+}
+
+function updateUI() {
+  const list = document.getElementById('entryList'); list.innerHTML = '';
+  entries.forEach((e,i) => {
+    list.innerHTML += `<div class="entry-bubble ${e.exhausted?'exhausted':''}">
+      <div style="width:10px;height:10px;border-radius:50%;background:${e.color}"></div>
+      <input value="${e.name}" oninput="entries[${i}].name=this.value; updateUI()">
+      <span onclick="entries.splice(${i},1);updateUI()" style="cursor:pointer;opacity:0.5">×</span>
+    </div>`;
+  });
+  syncDropdowns();
+  const d = document.getElementById('dragOrderList'); d.innerHTML = '';
+  (lockedSeq || entries.map(e=>e.name)).forEach(name => {
+    d.innerHTML += `<div class="order-item entry-bubble ${lockedSeq?'locked-state':''}" data-name="${name}">⠿ ${name}</div>`;
+  });
+
+  const btnSeq = document.getElementById('btnLockSeq'), btnOvr = document.getElementById('btnLockOverride');
+  btnSeq.innerText = lockedSeq ? "Unlock" : "Lock Sequence";
+  btnSeq.style.background = lockedSeq ? "#444" : "var(--gold-dark)";
+  btnOvr.innerText = activeOverride ? "Unlock" : "Lock Override";
+  btnOvr.style.background = activeOverride ? "#444" : "var(--gold-dark)";
+
+  document.getElementById('secOverride').style.opacity = lockedSeq ? "0.3" : "1";
+  document.getElementById('secOverride').style.pointerEvents = lockedSeq ? "none" : "all";
+  document.getElementById('secSequence').style.opacity = activeOverride ? "0.3" : "1";
+  document.getElementById('secSequence').style.pointerEvents = activeOverride ? "none" : "all";
+  
+  const isRigged = !!(lockedSeq || activeOverride?.first || activeOverride?.last);
+  document.getElementById('ghostRigIndicator').style.display = isRigged ? "block" : "none";
+  document.getElementById('tabRigIndicator').style.display = isRigged ? "block" : "none";
+  
+  document.getElementById('historyChips').innerHTML = spinHistory.map((n,i)=>`<span class="history-chip">${i+1}. ${n}</span>`).join('');
+  draw();
+}
+
+function resetAll() { entries.forEach(e=>e.exhausted=false); spinHistory=[]; currentRotation=0; document.getElementById('resultDisplay').innerText="Click Spin to begin"; updateUI(); }
+function clearAllRigging() { lockedSeq=null; activeOverride=null; document.getElementById('overrideControls').classList.remove('locked-state'); updateUI(); showNotify("Rigging Cleared"); }
+
+function toggleGhost() { 
+  if (!hasPaid) {
+    // ⚠ REPLACE WITH YOUR RECURRING STRIPE PAYMENT LINK
+    const stripePaymentLink = "https://buy.stripe.com/your_unique_link_here";
+    
+    if (confirm("Ghost Mode requires an active subscription. Click OK to subscribe")) {
+      window.location.href = stripePaymentLink;
+    }
+    return;
+  }
+
+  const g = document.body.classList.toggle('ghost-mode'); 
+  document.getElementById('titleMain').innerText = g ? "Wheel Decider" : "Rigged Wheel Decider"; 
+  switchTab('entries'); 
+}
+
+// Universal Shortcut: Shift + S
+window.addEventListener('keydown', function(e) {
+  if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
+    e.preventDefault();
+    toggleGhost();
+  }
+});
+
+// Check for valid subscription key in URL
+window.addEventListener('load', () => {
+  const urlParams = new URLSearchParams(window.location.search);
+  const userKey = urlParams.get('key');
+
+  if (userKey === CURRENT_VALID_KEY) {
+    localStorage.setItem('subscriptionKey', userKey);
+    hasPaid = true;
+    showNotify("Subscription Verified: Ghost Mode Active!");
+    window.history.replaceState({}, document.title, window.location.pathname);
+  } else if (localStorage.getItem('subscriptionKey') !== CURRENT_VALID_KEY) {
+    hasPaid = false;
+    localStorage.removeItem('subscriptionKey');
+  }
+});
+
+function switchTab(t) {
+  document.getElementById('tab-entries').style.display = t==='entries'?'block':'none';
+  document.getElementById('tab-order').style.display = t==='order'?'block':'none';
+  document.getElementById('tabBtnEntries').style.color = t==='entries'?'var(--gold)':'#a09070';
+  document.getElementById('tabBtnOrder').style.color = t==='order'?'var(--gold)':'#a09070';
+}
+function addEntry() { entries.push({name:'New Entry',weight:1,color:COLORS[entries.length%COLORS.length],exhausted:false}); updateUI(); }
+
+new Sortable(document.getElementById('dragOrderList'), { animation: 150 });
+updateUI();
+</script>
+</body>
+</html>
